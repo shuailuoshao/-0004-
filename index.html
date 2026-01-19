@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>文娱文本评价系统 v14.0 (Cloud)</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        :root { --primary: #2c3e50; --accent: #3498db; --bg: #f5f7fa; --card: #ffffff; --success: #2ecc71; --danger: #e74c3c; }
+        body { font-family: 'PingFang SC', system-ui, sans-serif; background: var(--bg); margin: 0; color: #333; }
+        
+        /* 导航 */
+        nav { background: var(--primary); color: white; padding: 0 30px; display: flex; gap: 30px; position: sticky; top:0; z-index: 1000; }
+        .nav-item { padding: 18px 10px; cursor: pointer; border-bottom: 4px solid transparent; font-weight: bold; font-size: 0.95rem; }
+        .nav-item.active { border-bottom-color: var(--accent); color: var(--accent); }
+
+        .main-container { padding: 25px; max-width: 1600px; margin: 0 auto; }
+        .system-page { display: none; gap: 25px; }
+        .system-page.active { display: grid; grid-template-columns: 1fr 450px; }
+
+        .content-card { background: var(--card); border-radius: 12px; padding: 25px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); margin-bottom: 25px; }
+        h2 { font-size: 1.1rem; border-left: 5px solid var(--accent); padding-left: 15px; margin-top: 0; display: flex; justify-content: space-between; align-items: center; }
+
+        .sidebar { position: sticky; top: 85px; height: fit-content; max-height: calc(100vh - 120px); overflow-y: auto; }
+
+        /* 评分系统 UI (严格维持 v8.0-v13.0) */
+        .profile-bar { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 15px; background: #eef2f7; padding: 15px; border-radius: 10px; }
+        .profile-chip { padding: 6px 15px; background: white; border: 1px solid #dcdfe6; border-radius: 20px; cursor: pointer; font-size: 0.85rem; }
+        .profile-chip.active { background: var(--accent); color: white; border-color: var(--accent); font-weight: bold; }
+        .metric-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 15px; }
+        .metric-box { background: #fff; padding: 15px; border-radius: 10px; border: 1px solid #edf2f7; }
+        .w-label { font-size: 0.75rem; color: #7f8c8d; background: #f0f2f5; padding: 2px 6px; border-radius: 4px; }
+        .btn-group { display: flex; gap: 3px; }
+        .btn-s { flex: 1; border: 1px solid #dcdfe6; background: white; padding: 8px 0; cursor: pointer; border-radius: 6px; font-weight: bold; font-size: 0.8rem; }
+        .btn-s.active[data-v="-1"] { background: var(--danger); color: white; border-color: var(--danger); }
+        .btn-s.active[data-v="0"] { background: #909399; color: white; border-color: #909399; }
+        .btn-s.active[data-v="1"] { background: var(--success); color: white; border-color: var(--success); }
+
+        .bottom-bar { background: white; padding: 15px 40px; border-top: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; position: sticky; bottom: 0; z-index: 1000; }
+        .input-main { padding: 10px 15px; border: 2px solid #ddd; border-radius: 8px; width: 250px; }
+        .btn-main { padding: 12px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; }
+
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 12px 15px; text-align: left; border-bottom: 1px solid #f0f2f5; }
+        .tag-badge { font-size: 0.7rem; padding: 2px 8px; border-radius: 10px; background: #e2e8f0; color: #4a5568; margin-top: 4px; display: inline-block; }
+        
+        .btn-mini { padding: 4px 8px; font-size: 0.7rem; cursor: pointer; border-radius: 4px; border: 1px solid #ddd; background: #fff; }
+
+        /* 弹窗设计 */
+        #zoom-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); display: none; justify-content: center; align-items: center; z-index: 3000; }
+        #editor-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); display: none; justify-content: center; align-items: center; z-index: 2000; }
+        .modal-body { background: white; padding: 30px; border-radius: 15px; width: 90%; max-width: 900px; max-height: 85vh; overflow-y: auto; }
+        
+        .loading-overlay { position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(255,255,255,0.8); display:flex; justify-content:center; align-items:center; z-index:9999; }
+    </style>
+</head>
+<body>
+
+<div id="loading" class="loading-overlay"><h3>正在连接云端数据库...</h3></div>
+
+<nav>
+    <div class="nav-item active" onclick="switchTab('scoring')">1. 评分系统</div>
+    <div class="nav-item" onclick="switchTab('comparison')">2. 对比系统</div>
+</nav>
+
+<div class="main-container">
+    <div id="page-scoring" class="system-page active">
+        <div class="main-content">
+            <div class="content-card">
+                <h2>权重方案集成控制 
+                    <button class="btn-main" style="background:#f1f2f6; color:#2c3e50; font-size:0.75rem; padding:5px 10px;" onclick="showEditor()">配置新方案</button>
+                </h2>
+                <div class="profile-bar" id="profile-switcher"></div>
+            </div>
+            <div id="metrics-render-list"></div>
+        </div>
+        <div class="sidebar">
+            <div class="content-card"><h2>评分分布图</h2><canvas id="radarChart"></canvas></div>
+            <div class="content-card" style="text-align: center;">
+                <p style="color: #909399; font-size: 0.85rem;">加权总得分 (云端同步)</p>
+                <h1 id="live-total" style="font-size: 3.5rem; color: var(--accent); margin: 10px 0;">50.0</h1>
+            </div>
+        </div>
+    </div>
+
+    <div id="page-comparison" class="system-page">
+        <div class="main-content">
+            <div class="content-card">
+                <h2>作品对比工具栏</h2>
+                <div style="display:flex; gap:10px; margin-bottom: 20px; align-items: center; background:#fff; padding:15px; border-radius:10px; border:1px solid #eee;">
+                    <input type="text" id="search-box" style="padding:8px; border:1px solid #ddd; border-radius:6px; flex:1;" placeholder="搜索作品名称..." oninput="renderHistory()">
+                    <select id="tag-filter" onchange="renderHistory()" style="padding:8px; border-radius:6px; border:1px solid #ddd;">
+                        <option value="all">所有类型</option>
+                        <option value="电影">电影</option>
+                        <option value="网络小说">网络小说</option>
+                        <option value="动漫">动漫</option>
+                        <option value="Galgame">Galgame</option>
+                        <option value="其他">其他</option>
+                    </select>
+                    <select id="rank-basis" onchange="renderHistory()" style="padding:8px; border-radius:6px; border:1px solid #ddd;"></select>
+                </div>
+                <table id="cloud-table">
+                    <thead><tr><th>对比</th><th>作品名称</th><th>重排分</th><th>原始分</th><th>操作</th></tr></thead>
+                    <tbody id="history-body"></tbody>
+                </table>
+            </div>
+        </div>
+        <div class="sidebar">
+            <div class="content-card">
+                <h2>作品对比玫瑰图</h2>
+                <canvas id="roseChart"></canvas>
+                <div style="display:flex; gap:5px; margin-top:10px; justify-content: flex-end;">
+                    <button class="btn-mini" onclick="zoomChart('roseChart')">放大</button>
+                    <button class="btn-mini" onclick="exportImg('roseChart')">保存</button>
+                </div>
+            </div>
+            <div class="content-card">
+                <h2>细分指标对比图</h2>
+                <canvas id="metricDetailChart"></canvas>
+                <div style="display:flex; gap:5px; margin-top:10px; justify-content: flex-end;">
+                    <button class="btn-mini" onclick="zoomChart('metricDetailChart')">放大</button>
+                    <button class="btn-mini" onclick="exportImg('metricDetailChart')">保存</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="bottom-bar" id="score-footer">
+    <div>
+        <input type="text" id="work-name-input" class="input-main" placeholder="作品名称...">
+        <select id="work-tag-input" style="padding:10px; border-radius:8px; border:1px solid #ddd; margin-left:10px;">
+            <option value="电影">电影</option>
+            <option value="网络小说">网络小说</option>
+            <option value="动漫">动漫</option>
+            <option value="Galgame">Galgame</option>
+            <option value="其他" selected>其他</option>
+        </select>
+        <button class="btn-main" style="background: var(--accent); color:white; margin-left:15px;" onclick="saveCurrent()">锁定并保存作品</button>
+        <button class="btn-main" style="background: #6c5ce7; color:white; margin-left:10px;" onclick="exportCard()">导出战报 (PNG)</button>
+    </div>
+    <div style="font-size: 0.8rem; color: #7f8c8d;">当前方案：<b id="active-p-label" style="color:var(--accent)">-</b></div>
+</div>
+
+<div id="zoom-modal" onclick="closeZoom()">
+    <div style="background:white; padding:30px; border-radius:15px; width:90%; height:85%; position:relative;" onclick="event.stopPropagation()">
+        <span style="position:absolute; top:15px; right:25px; cursor:pointer; font-size:2.5rem;" onclick="closeZoom()">&times;</span>
+        <canvas id="zoomCanvas"></canvas>
+    </div>
+</div>
+
+<div id="editor-modal">
+    <div class="modal-body">
+        <h2>权重覆盖配置编辑器</h2>
+        <div style="margin-bottom: 20px;">
+            方案名称：<input type="text" id="new-p-name" class="input-main" placeholder="方案名称..." style="width:200px;">
+        </div>
+        <div id="editor-grid-content" style="display:grid; grid-template-columns: repeat(3, 1fr); gap: 20px;"></div>
+        <div style="position: sticky; bottom: -30px; background: white; padding: 20px 0; border-top: 1px solid #eee; display: flex; justify-content: space-between; align-items: center;">
+            <div id="sum-checker" style="font-weight:bold; font-size:1.2rem;">总权重: 0 / 50.0</div>
+            <div>
+                <button class="btn-main" style="background:#eee; margin-right:10px;" onclick="hideEditor()">取消</button>
+                <button class="btn-main" style="background:var(--success); color:white;" onclick="saveProfile()">保存至云端</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // --- 管理员配置 (请修改此处密码) ---
+    const ADMIN_KEY = "123456"; // 你删除数据时需要输入的密码
+
+    // --- Supabase 初始化 ---
+    const SUPABASE_URL = "https://sizddcyyygvvyaubhtdg.supabase.co";
+    const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNpemRkY3l5eWd2dnlhdWJodGRnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg3OTk5NTMsImV4cCI6MjA4NDM3NTk1M30.CFdvAd61Fs1xFL2vc2kDOP5K0e5ihKJIq_shs1M6NIE";
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    const defaultMetrics = {
+        "作者层面": [{ name: "作品主题", w: 4 }, { name: "情节架构", w: 1.5 }, { name: "人物设计", w: 1 }, { name: "世界观", w: 1.5 }, { name: "叙事时间", w: 0.5 }, { name: "象征与意象", w: 1 }, { name: "时代背景", w: 0.5 }],
+        "文本层面": [{ name: "情节故事性", w: 1 }, { name: "登场人物塑造", w: 3 }, { name: "人物关系网络", w: 1.5 }, { name: "背景描写", w: 2 }, { name: "主题表达", w: 6 }, { name: "叙述视角", w: 1.5 }, { name: "文笔文风信息量", w: 2 }, { name: "修辞手法", w: 1.5 }, { name: "对话可咀嚼度", w: 1.5 }],
+        "读者层面": [{ name: "阅读前视野", w: 1 }, { name: "代入感", w: 0.5 }, { name: "情节理解", w: 3 }, { name: "人物理解", w: 3 }, { name: "主题理解", w: 4 }, { name: "整体审美", w: 2 }, { name: "知识获取", w: 1.5 }, { name: "观念改变", w: 2.5 }, { name: "行为影响", w: 2.5 }]
+    };
+
+    let pData = { "标准配置": defaultMetrics };
+    let hData = [];
+    let curP = "标准配置";
+    let curR = {};
+    let radar, rose, detail, zoomChartInstance;
+
+    // --- 云端数据交互 ---
+    async function syncFromCloud() {
+        document.getElementById('loading').style.display = 'flex';
+        try {
+            // 1. 获取评价
+            const { data: evals } = await supabase.from('evaluations').select('*');
+            hData = evals || [];
+            
+            // 2. 获取方案
+            const { data: profs } = await supabase.from('weight_profiles').select('*');
+            profs?.forEach(p => pData[p.name] = p.config);
+
+            init();
+        } catch (e) { alert("云端连接失败，请检查网络"); }
+        document.getElementById('loading').style.display = 'none';
+    }
+
+    function init() {
+        renderMetrics();
+        renderSwitcher();
+        updateSelectors();
+        initCharts();
+        renderHistory();
+        updateScore();
+    }
+
+    // --- 核心逻辑维持 (v8.0) ---
+    function renderMetrics() {
+        const area = document.getElementById('metrics-render-list');
+        area.innerHTML = '';
+        for (const [group, items] of Object.entries(pData[curP])) {
+            const card = document.createElement('div'); card.className = 'content-card';
+            card.innerHTML = `<h2>${group}</h2><div class="metric-grid"></div>`;
+            const grid = card.querySelector('.metric-grid');
+            items.forEach(m => {
+                if (!(m.name in curR)) curR[m.name] = 0;
+                grid.innerHTML += `<div class="metric-box"><div class="metric-name">${m.name}<span class="w-label">权重 ${m.w}</span></div><div class="btn-group"><button class="btn-s ${curR[m.name]==-1?'active':''}" data-m="${m.name}" data-v="-1">-1</button><button class="btn-s ${curR[m.name]==0?'active':''}" data-m="${m.name}" data-v="0">0</button><button class="btn-s ${curR[m.name]==1?'active':''}" data-m="${m.name}" data-v="1">1</button></div></div>`;
+            });
+            area.appendChild(card);
+        }
+        document.getElementById('active-p-label').innerText = curP;
+    }
+
+    function updateScore() {
+        let a=0, t=0, r=0; const config = pData[curP];
+        config["作者层面"].forEach(m => a += (curR[m.name] || 0) * m.w);
+        config["文本层面"].forEach(m => t += (curR[m.name] || 0) * m.w);
+        config["读者层面"].forEach(m => r += (curR[m.name] || 0) * m.w);
+        const total = a + t + r + 50;
+        document.getElementById('live-total').innerText = total.toFixed(1);
+        radar.data.datasets[0].data = [a, t, r]; radar.update();
+    }
+
+    // --- 云端保存逻辑 ---
+    async function saveCurrent() {
+        const name = document.getElementById('work-name-input').value.trim();
+        const tag = document.getElementById('work-tag-input').value;
+        if(!name) return alert("请输入作品名称");
+
+        const score = parseFloat(document.getElementById('live-total').innerText);
+        const { error } = await supabase.from('evaluations').insert([{ name, tag, score, ratings: curR, profile_used: curP }]);
+        
+        if (error) return alert("保存失败: " + error.message);
+        
+        curR = {}; document.getElementById('work-name-input').value = "";
+        await syncFromCloud();
+    }
+
+    async function deleteEntry(name) {
+        const key = prompt("请输入管理员密钥进行删除：");
+        if(key !== ADMIN_KEY) return alert("密钥错误，无权删除！");
+
+        const { error } = await supabase.from('evaluations').delete().eq('name', name);
+        if (error) alert("删除失败");
+        else await syncFromCloud();
+    }
+
+    async function saveProfile() {
+        if(checkSum() !== 50) return alert("总计必须等于50");
+        const name = document.getElementById('new-p-name').value.trim() || `方案_${Date.now()}`;
+        const config = JSON.parse(JSON.stringify(defaultMetrics));
+        document.querySelectorAll('.w-edit-in').forEach(i => config[i.dataset.g].find(m => m.name === i.dataset.n).w = parseFloat(i.value));
+        
+        const { error } = await supabase.from('weight_profiles').insert([{ name, config }]);
+        if (error) return alert("方案保存失败");
+
+        hideEditor();
+        await syncFromCloud();
+    }
+
+    // --- 对比系统图表修复 (v13.0) ---
+    function zoomChart(sourceId) {
+        const sourceChart = (sourceId === 'roseChart' ? rose : detail);
+        const modal = document.getElementById('zoom-modal');
+        const ctx = document.getElementById('zoomCanvas').getContext('2d');
+        modal.style.display = 'flex';
+        if (zoomChartInstance) zoomChartInstance.destroy();
+        zoomChartInstance = new Chart(ctx, {
+            type: sourceChart.config.type,
+            data: sourceChart.data,
+            options: { ...sourceChart.options, maintainAspectRatio: false, plugins: { legend: { display: true, position: 'top' } } }
+        });
+    }
+
+    async function exportCard() {
+        const name = document.getElementById('work-name-input').value || "未命名";
+        const score = document.getElementById('live-total').innerText;
+        const temp = document.createElement('div');
+        temp.style = `width: 1200px; padding: 50px; background: white; color: #2c3e50; border: 1px solid #ddd; border-radius: 20px; position: absolute; left: -9999px; display: flex; gap: 50px; font-family: sans-serif;`;
+        
+        let metricsHtml = "";
+        for (const [layer, items] of Object.entries(pData[curP])) {
+            metricsHtml += `<div style="margin-bottom:20px;"><h4 style="margin:0 0 12px 0; color:#3498db; border-bottom:2px solid #f0f2f5; padding-bottom:5px;">${layer}</h4><div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">`;
+            items.forEach(m => {
+                const val = curR[m.name] || 0;
+                const color = val === 1 ? '#2ecc71' : (val === -1 ? '#e74c3c' : '#bdc3c7');
+                metricsHtml += `<div style="font-size:14px; display:flex; align-items:center; gap:8px;"><span style="width:14px; height:14px; background:${color}; border-radius:3px;"></span><b>${m.name}:</b> ${val > 0 ? '+'+val : val}</div>`;
+            });
+            metricsHtml += `</div></div>`;
+        }
+
+        temp.innerHTML = `
+            <div style="flex: 1.1; background: #fafafa; padding: 40px; border-radius: 20px; text-align: center;">
+                <h1 style="font-size: 3.5rem; margin: 0; color:#2c3e50;">${name}</h1>
+                <p style="color:#95a5a6; margin-top:10px;">Cloud Report | ${new Date().toLocaleDateString()}</p>
+                <div style="margin: 40px 0;"><span style="font-size: 130px; font-weight: 900; color: #3498db;">${score}</span></div>
+                <img src="${radar.toBase64Image()}" style="width: 480px; margin: 0 auto; display: block;">
+            </div>
+            <div style="flex: 1;">
+                <h3 style="text-align:center; color:#2c3e50; margin-bottom:25px; font-size:1.5rem;">DIMENSION REPORT</h3>
+                ${metricsHtml}
+            </div>`;
+        document.body.appendChild(temp);
+        const canvas = await html2canvas(temp, { backgroundColor: '#ffffff' });
+        const a = document.createElement('a'); a.download = `评分战报_${name}.png`; a.href = canvas.toDataURL("image/png"); a.click(); document.body.removeChild(temp);
+    }
+
+    // (其余辅助 UI 逻辑如 renderHistory, updateComparison, initCharts 等均维持 v13.0 逻辑)
+    function renderHistory() {
+        const body = document.getElementById('history-body');
+        const basis = document.getElementById('rank-basis').value;
+        const search = document.getElementById('search-box').value.toLowerCase();
+        const tag = document.getElementById('tag-filter').value;
+        let filtered = hData.filter(h => h.name.toLowerCase().includes(search) && (tag === 'all' || h.tag === tag));
+        let list = filtered.map(h => {
+            let score = h.score; if(basis !== 'original' && pData[basis]) {
+                const p = pData[basis]; let a=0, t=0, r=0;
+                p["作者层面"].forEach(m => a += (h.ratings[m.name] || 0) * m.w); p["文本层面"].forEach(m => t += (h.ratings[m.name] || 0) * m.w); p["读者层面"].forEach(m => r += (h.ratings[m.name] || 0) * m.w);
+                score = a + t + r + 50;
+            } return { ...h, sortScore: score };
+        });
+        list.push({ name: "《丸子与银河龙》", sortScore: 50.0, score: 50.0, isB: true });
+        list.sort((a,b) => b.sortScore - a.sortScore);
+        body.innerHTML = '';
+        list.forEach(item => {
+            const tr = document.createElement('tr'); if(item.isB) tr.className = 'baseline-row';
+            tr.innerHTML = `<td>${item.isB ? '-' : `<input type="checkbox" onchange="updateComparison()" data-name="${item.name}">`}</td><td><b>${item.name}</b><br><small class="tag-badge">${item.tag || '-'}</small></td><td style="color:var(--accent); font-weight:bold;">${item.sortScore.toFixed(1)}</td><td style="color:#ccc;">${item.score.toFixed(1)}</td><td>${item.isB ? '-' : `<button onclick="deleteEntry('${item.name}')" style="color:red; border:none; background:none; cursor:pointer;">删除</button>`}</td>`;
+            body.appendChild(tr);
+        });
+    }
+
+    function updateComparison() {
+        const checked = Array.from(document.querySelectorAll('input[type=checkbox]:checked')).map(i => i.dataset.name);
+        const selected = hData.filter(h => checked.includes(h.name));
+        rose.data.datasets = selected.map((h, i) => {
+            const hue = (i * 137) % 360; const p = pData[h.pUsed] || defaultMetrics; let a=0, t=0, r=0;
+            p["作者层面"].forEach(m => a += (h.ratings[m.name] || 0) * m.w); p["文本层面"].forEach(m => t += (h.ratings[m.name] || 0) * m.w); p["读者层面"].forEach(m => r += (h.ratings[m.name] || 0) * m.w);
+            return { label: h.name, data: [Math.abs(a)+2, Math.abs(t)+2, Math.abs(r)+2], backgroundColor: [`hsla(${hue}, 70%, 60%, 0.7)`, `hsla(${hue}, 70%, 45%, 0.7)`, `hsla(${hue}, 70%, 30%, 0.7)`] };
+        }); rose.update();
+        const allMetrics = Object.values(defaultMetrics).flat().map(m => m.name);
+        detail.data.labels = allMetrics;
+        detail.data.datasets = selected.map((h, i) => ({ label: h.name, data: allMetrics.map(n => h.ratings[n] || 0), backgroundColor: `hsla(${(i * 137) % 360}, 70%, 50%, 0.8)` }));
+        detail.update();
+    }
+
+    function initCharts() {
+        radar = new Chart(document.getElementById('radarChart'), { type: 'radar', data: { labels: ['作者层', '文本层', '读者层'], datasets: [{ label: '分布', data: [0,0,0], backgroundColor: 'rgba(52, 152, 219, 0.2)', borderColor: '#3498db' }] }, options: { scales: { r: { min: -10, max: 25, ticks: { display: false } } } } });
+        rose = new Chart(document.getElementById('roseChart'), { type: 'polarArea', data: { labels: ['作者强度', '文本强度', '读者强度'], datasets: [] }, options: { plugins: { legend: { position: 'bottom' } } } });
+        detail = new Chart(document.getElementById('metricDetailChart'), { type: 'bar', data: { labels: [], datasets: [] }, options: { indexAxis: 'y', scales: { x: { min: -1, max: 1 } } } });
+    }
+    function switchTab(t) { document.querySelectorAll('.nav-item, .system-page').forEach(el => el.classList.remove('active')); document.querySelector(`.nav-item:nth-child(${t==='scoring'?1:2})`).classList.add('active'); document.getElementById(`page-${t}`).classList.add('active'); document.getElementById('score-footer').style.display = t === 'scoring' ? 'flex' : 'none'; if(t === 'comparison') renderHistory(); }
+    document.addEventListener('click', e => { if(e.target.classList.contains('btn-s')) { curR[e.target.dataset.m] = parseInt(e.target.dataset.v); updateScore(); e.target.parentElement.querySelectorAll('.btn-s').forEach(b => b.classList.remove('active')); e.target.classList.add('active'); } });
+    function hideEditor() { document.getElementById('editor-modal').style.display='none'; }
+    function closeZoom() { document.getElementById('zoom-modal').style.display = 'none'; }
+    function renderSwitcher() { const bar = document.getElementById('profile-switcher'); bar.innerHTML = ''; Object.keys(pData).forEach(name => { const chip = document.createElement('div'); chip.className = `profile-chip ${name === curP ? 'active' : ''}`; chip.innerText = name; chip.onclick = () => { curP = name; renderMetrics(); updateScore(); renderSwitcher(); }; bar.appendChild(chip); }); }
+    function showEditor() { const grid = document.getElementById('editor-grid-content'); grid.innerHTML = ''; for (const [g, items] of Object.entries(pData[curP])) { grid.innerHTML += `<div style="grid-column: span 3; font-weight:bold; color:var(--accent); border-bottom:1px solid #eee; margin-top:10px;">${g}</div>`; items.forEach(m => grid.innerHTML += `<div style="display:flex; justify-content:space-between; align-items:center; background:#f9f9f9; padding:8px; border-radius:5px;"><span style="font-size:0.8rem;">${m.name}</span><input type="number" step="0.5" class="w-edit-in" data-g="${g}" data-n="${m.name}" value="${m.w}" oninput="checkSum()" style="width:55px;"></div>`); } document.getElementById('editor-modal').style.display = 'flex'; checkSum(); }
+    function checkSum() { let sum = 0; document.querySelectorAll('.w-edit-in').forEach(i => sum += parseFloat(i.value || 0)); const s = document.getElementById('sum-checker'); s.innerText = `总权重: ${sum.toFixed(1)} / 50.0`; s.style.color = (sum === 50) ? 'var(--success)' : 'var(--danger)'; return sum; }
+    function updateSelectors() { const s=document.getElementById('rank-basis'); s.innerHTML='<option value="original">原始分</option>'; Object.keys(pData).forEach(n=>s.innerHTML+=`<option value="${n}">${n}</option>`); }
+    function exportImg(cid) { const c=document.getElementById(cid); const t=document.createElement('canvas'); t.width=c.width; t.height=c.height; const ctx=t.getContext('2d'); ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,t.width,t.height); ctx.drawImage(c,0,0); const a=document.createElement('a'); a.download='chart.png'; a.href=t.toDataURL(); a.click(); }
+
+    syncFromCloud();
+</script>
+</body>
+</html>
