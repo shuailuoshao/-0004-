@@ -175,7 +175,8 @@
     // --- Supabase 初始化 ---
     const SUPABASE_URL = "https://sizddcyyygvvyaubhtdg.supabase.co";
     const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNpemRkY3l5eWd2dnlhdWJodGRnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njg3OTk5NTMsImV4cCI6MjA4NDM3NTk1M30.CFdvAd61Fs1xFL2vc2kDOP5K0e5ihKJIq_shs1M6NIE";
-    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    // 改名为 supabaseClient，避开全局变量冲突
+    const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
     const defaultMetrics = {
         "作者层面": [{ name: "作品主题", w: 4 }, { name: "情节架构", w: 1.5 }, { name: "人物设计", w: 1 }, { name: "世界观", w: 1.5 }, { name: "叙事时间", w: 0.5 }, { name: "象征与意象", w: 1 }, { name: "时代背景", w: 0.5 }],
@@ -194,11 +195,11 @@
         document.getElementById('loading').style.display = 'flex';
         try {
             // 1. 获取评价
-            const { data: evals } = await supabase.from('evaluations').select('*');
+           const { data: evals } = await supabaseClient.from('evaluations').select('*');
             hData = evals || [];
             
             // 2. 获取方案
-            const { data: profs } = await supabase.from('weight_profiles').select('*');
+            const { data: profs } = await supabaseClient.from('weight_profiles').select('*');
             profs?.forEach(p => pData[p.name] = p.config);
 
             init();
@@ -249,7 +250,7 @@
         if(!name) return alert("请输入作品名称");
 
         const score = parseFloat(document.getElementById('live-total').innerText);
-        const { error } = await supabase.from('evaluations').insert([{ name, tag, score, ratings: curR, profile_used: curP }]);
+        const { error } = await supabaseClient.from('evaluations').insert([{ name, tag, score, ratings: curR, profile_used: curP }]);
         
         if (error) return alert("保存失败: " + error.message);
         
@@ -261,7 +262,7 @@
         const key = prompt("请输入管理员密钥进行删除：");
         if(key !== ADMIN_KEY) return alert("密钥错误，无权删除！");
 
-        const { error } = await supabase.from('evaluations').delete().eq('name', name);
+        const { error } = await supabaseClient.from('evaluations').delete().eq('name', name);
         if (error) alert("删除失败");
         else await syncFromCloud();
     }
@@ -272,7 +273,7 @@
         const config = JSON.parse(JSON.stringify(defaultMetrics));
         document.querySelectorAll('.w-edit-in').forEach(i => config[i.dataset.g].find(m => m.name === i.dataset.n).w = parseFloat(i.value));
         
-        const { error } = await supabase.from('weight_profiles').insert([{ name, config }]);
+        const { error } = await supabaseClient.from('weight_profiles').insert([{ name, config }]);
         if (error) return alert("方案保存失败");
 
         hideEditor();
@@ -382,4 +383,5 @@
     syncFromCloud();
 </script>
 </body>
+
 </html>
